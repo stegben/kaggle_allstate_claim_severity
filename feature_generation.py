@@ -29,26 +29,26 @@ def extract_data(train_fname, test_fname, rand_state=1234):
         if 'cat' in col:
             dummy = pd.get_dummies(df[col], drop_first=True, prefix=col)
             df = pd.concat([df, dummy], axis=1).drop(col, axis=1)
-        if col == 'cont2':
-            print('{} has {} unique values'.format(col, len(df[col].value_counts())))
-            dummy = pd.get_dummies(df[col], drop_first=True, prefix=col)
-            df = pd.concat([df, dummy], axis=1)
+        # if col == 'cont2':
+        #     print('{} has {} unique values'.format(col, len(df[col].value_counts())))
+        #     dummy = pd.get_dummies(df[col], drop_first=True, prefix=col)
+        #     df = pd.concat([df, dummy], axis=1)
         if 'cont' in col:
             target = df[col]
             df[col] = (target - target.mean()) / target.std()
 
-    cont_col_combinations = itertools.combinations([col for col in columns if 'cont' in col], 2)
-    for col_combination in cont_col_combinations:
-        col1 = col_combination[0]
-        col2 = col_combination[1]
-        new_feat_1 = (df[col2] / df[col1])
-        new_feat_1 = new_feat_1.fillna(new_feat_1.mean())
-        new_feat_name_1 = col2 + '_divide_' + col1
-        df[new_feat_name_1] = new_feat_1
+    # cont_col_combinations = itertools.combinations([col for col in columns if 'cont' in col], 2)
+    # for col_combination in cont_col_combinations:
+    #     col1 = col_combination[0]
+    #     col2 = col_combination[1]
+    #     new_feat_1 = (df[col2] / df[col1])
+    #     new_feat_1 = new_feat_1.fillna(new_feat_1.mean())
+    #     new_feat_name_1 = col2 + '_divide_' + col1
+    #     df[new_feat_name_1] = new_feat_1
 
-        new_feat_2 = (df[col2] * df[col1])
-        new_feat_name_2 = col2 + '_multiply_' + col1
-        df[new_feat_name_2] = new_feat_2
+    #     new_feat_2 = (df[col2] * df[col1])
+    #     new_feat_name_2 = col2 + '_multiply_' + col1
+    #     df[new_feat_name_2] = new_feat_2
 
 
     df_train = df[~df['is_test']].drop('id', axis=1)

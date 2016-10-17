@@ -32,6 +32,7 @@ def reference_model(input_dim):
     model.add(PReLU())
     model.add(Dropout(0.2))
     model.add(Dense(1, init='he_normal'))
+    model.add(Activation('softplus'))
     model.compile(loss='mae', optimizer='adadelta')
     return(model)
 
@@ -55,17 +56,17 @@ def modified_reference_model(input_dim):
 
 def my_model(input_dim):
     model = Sequential([
-        Dense(1000, input_dim=input_dim, W_regularizer=l1(0.0002), init='he_normal'),
+        Dense(1200, input_dim=input_dim, W_regularizer=l1(0.0001), init='he_normal'),
         Activation('tanh'),
         # PReLU(init='zero', weights=None),
-        Dropout(0.2),
-        Dense(400, init='he_normal', W_regularizer=l2(0.0002)),
+        Dropout(0.4),
+        Dense(600, init='he_normal', W_regularizer=l2(0.0001)),
         PReLU(init='zero', weights=None),
-        Dropout(0.2),
-        Dense(200, init='he_normal', W_regularizer=l2(0.0002)),
+        Dropout(0.4),
+        Dense(300, init='he_normal', W_regularizer=l2(0.0001)),
         PReLU(init='zero', weights=None),
-        Dropout(0.2),
-        Dense(100, init='he_normal', W_regularizer=l2(0.0002)),
+        Dropout(0.4),
+        Dense(150, init='he_normal', W_regularizer=l2(0.0001)),
         PReLU(init='zero', weights=None),
         Dense(1),
         Activation('softplus'),
@@ -84,7 +85,7 @@ def train_modified_reference_model(subtrain_x, subtrain_y, validation_x, validat
         subtrain_x,
         subtrain_y,
         nb_epoch=NB_EPOCH_MODIFIED_REFERENCE_MODEL,
-        batch_size=32,
+        batch_size=64,
         validation_data=(validation_x, validation_y)
     )
     loss = model.evaluate(validation_x, validation_y, verbose=0)
@@ -99,7 +100,7 @@ def train_reference_model(subtrain_x, subtrain_y, validation_x, validation_y):
         subtrain_x,
         subtrain_y,
         nb_epoch=NB_EPOCH_REFERENCE_MODEL,
-        batch_size=32,
+        batch_size=128,
         validation_data=(validation_x, validation_y)
     )
     loss = model.evaluate(validation_x, validation_y, verbose=0)
@@ -130,7 +131,7 @@ def ensemble_models_predict(models, test_x):
             prediction = current_prediction
         else:
             prediction += current_prediction
-    prediction /= 10
+    prediction /= model_num
     return prediction.flatten()
 
 
@@ -151,7 +152,7 @@ def main():
     reference_model_loss = []
     modified_reference_model_loss = []
     my_model_loss = []
-    kf = KFold(n_splits=5, shuffle=False, random_state=None)
+    kf = KFold(n_splits=5, shuffle=True, random_state=1234)
     for subtr_idx, valid_idx in kf.split(train_x):
         subtrain_x = train_x[subtr_idx, :]
         subtrain_y = train_y[subtr_idx]
@@ -163,9 +164,9 @@ def main():
         model, mae = train_modified_reference_model(subtrain_x, subtrain_y, validation_x, validation_y)
         models.append(model)
         modified_reference_model_loss.append(mae)
-        model, mae = train_my_model(subtrain_x, subtrain_y, validation_x, validation_y)
-        models.append(model)
-        my_model_loss.append(mae)
+        # model, mae = train_my_model(subtrain_x, subtrain_y, validation_x, validation_y)
+        # models.append(model)
+        # my_model_loss.append(mae)
         print('my_model_loss', my_model_loss)
         print('reference_model_loss', reference_model_loss)
         print('modified_reference_model_loss', modified_reference_model_loss)
