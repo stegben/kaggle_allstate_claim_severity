@@ -1,5 +1,6 @@
 import sys
 
+import numpy as np
 import pandas as pd
 
 import joblib
@@ -17,7 +18,9 @@ from keras.regularizers import l1, l2
 from keras.optimizers import Nadam
 
 
-NB_EPOCH_MODIFIED_REFERENCE_MODEL = 1
+NB_EPOCH_MODIFIED_REFERENCE_MODEL = 50
+NB_EPOCH_REFERENCE_MODEL = 50
+NB_EPOCH_MY_MODEL = 50
 
 
 def reference_model(input_dim):
@@ -92,7 +95,13 @@ def train_reference_model(subtrain_x, subtrain_y, validation_x, validation_y):
     input_dim = subtrain_x.shape[1]
     print(input_dim)
     model = reference_model(input_dim)
-    model.fit(subtrain_x, subtrain_y, nb_epoch=50, batch_size=32, validation_data=(validation_x, validation_y))
+    model.fit(
+        subtrain_x,
+        subtrain_y,
+        nb_epoch=NB_EPOCH_REFERENCE_MODEL,
+        batch_size=32,
+        validation_data=(validation_x, validation_y)
+    )
     loss = model.evaluate(validation_x, validation_y, verbose=0)
     return model, loss
 
@@ -101,7 +110,13 @@ def train_my_model(subtrain_x, subtrain_y, validation_x, validation_y):
     input_dim = subtrain_x.shape[1]
     print(input_dim)
     model = my_model(input_dim)
-    model.fit(subtrain_x, subtrain_y, nb_epoch=50, batch_size=32, validation_data=(validation_x, validation_y))
+    model.fit(
+        subtrain_x,
+        subtrain_y,
+        nb_epoch=NB_EPOCH_MY_MODEL,
+        batch_size=32,
+        validation_data=(validation_x, validation_y)
+    )
     loss = model.evaluate(validation_x, validation_y, verbose=0)
     return model, loss
 
@@ -145,15 +160,18 @@ def main():
         model, mae = train_reference_model(subtrain_x, subtrain_y, validation_x, validation_y)
         models.append(model)
         reference_model_loss.append(mae)
-        # model, mae = train_modified_reference_model(subtrain_x, subtrain_y, validation_x, validation_y)
-        # models.append(model)
-        # modified_reference_model_loss.append(mae)
-        # model, mae = train_my_model(subtrain_x, subtrain_y, validation_x, validation_y)
-        # models.append(model)
-        # my_model_loss.append(mae)
+        model, mae = train_modified_reference_model(subtrain_x, subtrain_y, validation_x, validation_y)
+        models.append(model)
+        modified_reference_model_loss.append(mae)
+        model, mae = train_my_model(subtrain_x, subtrain_y, validation_x, validation_y)
+        models.append(model)
+        my_model_loss.append(mae)
         print('my_model_loss', my_model_loss)
         print('reference_model_loss', reference_model_loss)
         print('modified_reference_model_loss', modified_reference_model_loss)
+    print('average my_model_loss', np.mean(my_model_loss))
+    print('average reference_model_loss', np.mean(reference_model_loss))
+    print('average modified_reference_model_loss', np.mean(modified_reference_model_loss))
 
     test_x = df_test.drop('id', axis=1).values
     test_id = df_test['id']
