@@ -4,6 +4,8 @@ import pandas as pd
 
 import joblib
 
+from sklearn.model_selection import KFold
+
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import Activation
@@ -13,6 +15,9 @@ from keras.layers.noise import GaussianNoise
 from keras.layers.normalization import BatchNormalization
 from keras.regularizers import l1, l2
 from keras.optimizers import Nadam
+
+
+NB_EPOCH_MODIFIED_REFERENCE_MODEL = 1
 
 
 def reference_model(input_dim):
@@ -68,15 +73,50 @@ def my_model(input_dim):
     return model
 
 
-def train_model(train_x, train_y):
-    input_dim = train_x.shape[1]
+def train_modified_reference_model(subtrain_x, subtrain_y, validation_x, validation_y):
+    input_dim = subtrain_x.shape[1]
     print(input_dim)
     model = modified_reference_model(input_dim)
-    # model = reference_model(input_dim)
-    # model = my_model(input_dim)
+    model.fit(
+        subtrain_x,
+        subtrain_y,
+        nb_epoch=NB_EPOCH_MODIFIED_REFERENCE_MODEL,
+        batch_size=32,
+        validation_data=(validation_x, validation_y)
+    )
+    loss = model.evaluate(validation_x, validation_y, verbose=0)
+    return model, loss
 
-    model.fit(train_x, train_y, nb_epoch=50, batch_size=128, validation_split=0.1)
-    return model
+
+def train_reference_model(subtrain_x, subtrain_y, validation_x, validation_y):
+    input_dim = subtrain_x.shape[1]
+    print(input_dim)
+    model = reference_model(input_dim)
+    model.fit(subtrain_x, subtrain_y, nb_epoch=50, batch_size=32, validation_data=(validation_x, validation_y))
+    loss = model.evaluate(validation_x, validation_y, verbose=0)
+    return model, loss
+
+
+def train_my_model(subtrain_x, subtrain_y, validation_x, validation_y):
+    input_dim = subtrain_x.shape[1]
+    print(input_dim)
+    model = my_model(input_dim)
+    model.fit(subtrain_x, subtrain_y, nb_epoch=50, batch_size=32, validation_data=(validation_x, validation_y))
+    loss = model.evaluate(validation_x, validation_y, verbose=0)
+    return model, loss
+
+
+def ensemble_models_predict(models, test_x):
+    model_num = len(models)
+    prediction = None
+    for model in models:
+        current_prediction = model.predict(test_x)
+        if prediction is None:
+            prediction = current_prediction
+        else:
+            prediction += current_prediction
+    prediction /= 10
+    return prediction.flatten()
 
 
 def main():
@@ -92,12 +132,33 @@ def main():
     train_y = df_train['loss'].values
 
     print('===== train model')
-    model = train_model(train_x, train_y)
+    models = []
+    reference_model_loss = []
+    modified_reference_model_loss = []
+    my_model_loss = []
+    kf = KFold(n_splits=5, shuffle=False, random_state=None)
+    for subtr_idx, valid_idx in kf.split(train_x):
+        subtrain_x = train_x[subtr_idx, :]
+        subtrain_y = train_y[subtr_idx]
+        validation_x = train_x[valid_idx, :]
+        validation_y = train_y[valid_idx]
+        model, mae = train_reference_model(subtrain_x, subtrain_y, validation_x, validation_y)
+        models.append(model)
+        reference_model_loss.append(mae)
+        # model, mae = train_modified_reference_model(subtrain_x, subtrain_y, validation_x, validation_y)
+        # models.append(model)
+        # modified_reference_model_loss.append(mae)
+        # model, mae = train_my_model(subtrain_x, subtrain_y, validation_x, validation_y)
+        # models.append(model)
+        # my_model_loss.append(mae)
+        print('my_model_loss', my_model_loss)
+        print('reference_model_loss', reference_model_loss)
+        print('modified_reference_model_loss', modified_reference_model_loss)
 
     test_x = df_test.drop('id', axis=1).values
     test_id = df_test['id']
-    pred = model.predict(test_x)
-    pd.DataFrame({'id': test_id, 'loss': pred.flatten()}).to_csv(sub_fname, index=False)
+    pred = ensemble_models_predict(models, test_x)
+    pd.DataFrame({'id': test_id, 'loss': pred}).to_csv(sub_fname, index=False)
 
 
 if __name__ == '__main__':
