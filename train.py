@@ -1,4 +1,5 @@
 import sys
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ import joblib
 from sklearn.model_selection import KFold
 
 from keras.models import Sequential
+from keras.models import load_model
 from keras.layers import Dense
 from keras.layers import Activation
 from keras.layers.advanced_activations import PReLU
@@ -16,11 +18,17 @@ from keras.layers.noise import GaussianNoise
 from keras.layers.normalization import BatchNormalization
 from keras.regularizers import l1, l2
 from keras.optimizers import Nadam
+from keras.optimizers import Adadelta
+
+from keras.callbacks import Callback
+from keras.callbacks import EarlyStopping
+from keras.callbacks import ReduceLROnPlateau
+from keras.callbacks import ModelCheckpoint
 
 
-NB_EPOCH_MODIFIED_REFERENCE_MODEL = 50
-NB_EPOCH_REFERENCE_MODEL = 50
-NB_EPOCH_MY_MODEL = 50
+NB_EPOCH_MODIFIED_REFERENCE_MODEL = 200
+NB_EPOCH_REFERENCE_MODEL = 200
+NB_EPOCH_MY_MODEL = 500
 
 
 def reference_model(input_dim):
@@ -33,91 +41,177 @@ def reference_model(input_dim):
     model.add(Dropout(0.2))
     model.add(Dense(1, init='he_normal'))
     model.add(Activation('softplus'))
-    model.compile(loss='mae', optimizer='adadelta')
+    optimizer = Adadelta(lr=2.0, rho=0.95, epsilon=1e-08, decay=0.0)
+    model.compile(loss='mae', optimizer=optimizer)
+    print(model.summary())
     return(model)
 
 
 def modified_reference_model(input_dim):
     model = Sequential()
-    model.add(Dense(300, input_dim=input_dim, init='he_normal'))
+    model.add(Dense(400, input_dim=input_dim, init='he_normal', W_regularizer=l2(0.001)))
     model.add(Activation('tanh'))
-    model.add(Dropout(0.4))
+    model.add(BatchNormalization(mode=0))
+    model.add(Dropout(0.3))
     model.add(Dense(200, init='he_normal'))
     model.add(PReLU())
-    model.add(Dropout(0.4))
+    model.add(BatchNormalization(mode=0))
+    model.add(Dropout(0.3))
     model.add(Dense(200, init='he_normal'))
     model.add(PReLU())
-    model.add(Dropout(0.4))
+    model.add(BatchNormalization(mode=0))
+    model.add(Dropout(0.3))
+    model.add(Dense(200, init='he_normal'))
+    model.add(PReLU())
+    model.add(BatchNormalization(mode=0))
+    model.add(Dropout(0.3))
     model.add(Dense(1, init='he_normal'))
     model.add(Activation('softplus'))
-    model.compile(loss='mae', optimizer='adadelta')
+    optimizer = Adadelta(lr=1.5, rho=0.95, epsilon=1e-08, decay=0.0)
+    # optimizer = Nadam(lr=0.1, beta_1=0.9, beta_2=0.999, epsilon=1e-08, schedule_decay=0.00001)
+    model.compile(loss='mae', optimizer=optimizer)
+    print(model.summary())
     return(model)
 
 
 def my_model(input_dim):
     model = Sequential([
-        Dense(1200, input_dim=input_dim, W_regularizer=l1(0.0001), init='he_normal'),
+        Dense(1200, input_dim=input_dim, init='he_normal'),
         Activation('tanh'),
+        BatchNormalization(mode=0),
         # PReLU(init='zero', weights=None),
         Dropout(0.4),
-        Dense(600, init='he_normal', W_regularizer=l2(0.0001)),
+        Dense(600, init='he_normal'),
         PReLU(init='zero', weights=None),
+        BatchNormalization(mode=0),
         Dropout(0.4),
-        Dense(300, init='he_normal', W_regularizer=l2(0.0001)),
+        Dense(300, init='he_normal'),
         PReLU(init='zero', weights=None),
+        BatchNormalization(mode=0),
         Dropout(0.4),
-        Dense(150, init='he_normal', W_regularizer=l2(0.0001)),
+        Dense(150, init='he_normal'),
         PReLU(init='zero', weights=None),
+        BatchNormalization(mode=0),
+        Dropout(0.4),
+        Dense(75, init='he_normal'),
+        PReLU(init='zero', weights=None),
+        BatchNormalization(mode=0),
+        Dropout(0.4),
         Dense(1),
         Activation('softplus'),
         # Activation('relu')
     ])
-    optimizer = Nadam(lr=0.0002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, schedule_decay=0.00005)
+    optimizer = Nadam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-08, schedule_decay=0.00005)
     model.compile(optimizer=optimizer, loss='mae')
+    print(model.summary())
     return model
 
 
-def train_modified_reference_model(subtrain_x, subtrain_y, validation_x, validation_y):
+def train_modified_reference_model(subtrain_x, subtrain_y, validation_x, validation_y, best_model_fname):
     input_dim = subtrain_x.shape[1]
     print(input_dim)
     model = modified_reference_model(input_dim)
+    # best_model_fname = '../modified_reference_model.h5'
+    reduce_lr = ReduceLROnPlateau(
+        monitor='val_loss',
+        verbose=1,
+        factor=0.3,
+        patience=5,
+        cooldown=3,
+        min_lr=1e-8
+    )
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        patience=15,
+        verbose=1,
+    )
+    model_cp = ModelCheckpoint(
+        best_model_fname,
+        verbose=1,
+        save_best_only=True,
+    )
+
     model.fit(
         subtrain_x,
         subtrain_y,
         nb_epoch=NB_EPOCH_MODIFIED_REFERENCE_MODEL,
         batch_size=64,
-        validation_data=(validation_x, validation_y)
+        validation_data=(validation_x, validation_y),
+        callbacks=[reduce_lr, early_stopping, model_cp],
     )
+    model = load_model(best_model_fname)
     loss = model.evaluate(validation_x, validation_y, verbose=0)
     return model, loss
 
 
-def train_reference_model(subtrain_x, subtrain_y, validation_x, validation_y):
+def train_reference_model(subtrain_x, subtrain_y, validation_x, validation_y, best_model_fname):
     input_dim = subtrain_x.shape[1]
     print(input_dim)
     model = reference_model(input_dim)
+
+    reduce_lr = ReduceLROnPlateau(
+        monitor='val_loss',
+        verbose=1,
+        factor=0.3,
+        patience=5,
+        cooldown=3,
+        min_lr=1e-8
+    )
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        patience=15,
+        verbose=1,
+    )
+    model_cp = ModelCheckpoint(
+        best_model_fname,
+        verbose=1,
+        save_best_only=True,
+    )
     model.fit(
         subtrain_x,
         subtrain_y,
         nb_epoch=NB_EPOCH_REFERENCE_MODEL,
         batch_size=128,
-        validation_data=(validation_x, validation_y)
+        validation_data=(validation_x, validation_y),
+        callbacks=[reduce_lr, early_stopping, model_cp],
     )
+    model = load_model(best_model_fname)
     loss = model.evaluate(validation_x, validation_y, verbose=0)
     return model, loss
 
 
-def train_my_model(subtrain_x, subtrain_y, validation_x, validation_y):
+def train_my_model(subtrain_x, subtrain_y, validation_x, validation_y, best_model_fname):
     input_dim = subtrain_x.shape[1]
     print(input_dim)
     model = my_model(input_dim)
+    reduce_lr = ReduceLROnPlateau(
+        monitor='val_loss',
+        verbose=1,
+        factor=0.3,
+        patience=5,
+        cooldown=3,
+        min_lr=1e-8
+    )
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        patience=15,
+        verbose=1,
+    )
+    model_cp = ModelCheckpoint(
+        best_model_fname,
+        verbose=1,
+        save_best_only=True,
+    )
+
     model.fit(
         subtrain_x,
         subtrain_y,
         nb_epoch=NB_EPOCH_MY_MODEL,
         batch_size=32,
-        validation_data=(validation_x, validation_y)
+        validation_data=(validation_x, validation_y),
+        callbacks=[reduce_lr, early_stopping, model_cp],
     )
+    model = load_model(best_model_fname)
     loss = model.evaluate(validation_x, validation_y, verbose=0)
     return model, loss
 
@@ -153,18 +247,25 @@ def main():
     modified_reference_model_loss = []
     my_model_loss = []
     kf = KFold(n_splits=5, shuffle=True, random_state=1234)
-    for subtr_idx, valid_idx in kf.split(train_x):
+    now = datetime.now().strftime("%Y%m%d%H")
+    for idx, (subtr_idx, valid_idx) in enumerate(kf.split(train_x)):
         subtrain_x = train_x[subtr_idx, :]
         subtrain_y = train_y[subtr_idx]
         validation_x = train_x[valid_idx, :]
         validation_y = train_y[valid_idx]
-        model, mae = train_reference_model(subtrain_x, subtrain_y, validation_x, validation_y)
-        models.append(model)
-        reference_model_loss.append(mae)
-        model, mae = train_modified_reference_model(subtrain_x, subtrain_y, validation_x, validation_y)
+
+        # best_model_fname_1 = '../reference_model_' + now + '_fold_' + str(idx) + '.h5'
+        # model, mae = train_reference_model(subtrain_x, subtrain_y, validation_x, validation_y, best_model_fname_1)
+        # models.append(model)
+        # reference_model_loss.append(mae)
+
+        best_model_fname_2 = '../modified_reference_model_' + now + '_fold_' + str(idx) + '.h5'
+        model, mae = train_modified_reference_model(subtrain_x, subtrain_y, validation_x, validation_y, best_model_fname_2)
         models.append(model)
         modified_reference_model_loss.append(mae)
-        # model, mae = train_my_model(subtrain_x, subtrain_y, validation_x, validation_y)
+
+        # best_model_fname_3 = '../my_model_' + now + '_fold_' + str(idx) + '.h5'
+        # model, mae = train_my_model(subtrain_x, subtrain_y, validation_x, validation_y, best_model_fname_2)
         # models.append(model)
         # my_model_loss.append(mae)
         print('my_model_loss', my_model_loss)
